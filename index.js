@@ -3,6 +3,7 @@ const cors = require('cors');
 const { MongoClient, ServerApiVersion, ObjectId } = require("mongodb");
 require('dotenv').config();
 const jwt = require("jsonwebtoken");
+const stripe = require("stripe")(process.env.STRIPE_KEY);
 const app = express()
 const port = process.env.PORT || 5000
 
@@ -46,6 +47,7 @@ async function run() {
         const bookingsCollection = client.db("DoctorsPortal").collection("bookings");
         const usersCollection = client.db("DoctorsPortal").collection("users");
         const doctorsCollection = client.db("DoctorsPortal").collection("doctors");
+        const paymentCollection = client.db("DoctorsPortal").collection("payment");
 
         // Note: verify admin check after vefiryJwt
         const verifyAdmin = async(req, res, next) => {
@@ -177,6 +179,36 @@ async function run() {
             console.log(id)
             const filter = {_id: ObjectId(id)}
             const result = await doctorsCollection.deleteOne(filter);
+            res.send(result)
+        })
+
+        app.post("/create-payment-intent", async(req, res) => {
+            const booking = req.body
+            const amount = booking.price * 100
+            const paymentIntent = await stripe.paymentIntents.create({
+              amount: amount,
+              currency: "usd",
+              automatic_payment_methods: {
+                enabled: true,
+              },
+            });
+            res.send({
+              clientSecret: paymentIntent.client_secret,
+            });
+        });
+
+        app.post('/payments', async(req, res) => {
+            const payment = req.body;
+            const result = await paymentCollection.insertOne(payment);
+            const bookingId = payment.bookingId;
+            const filter = {_id : ObjectId(bookingId)}
+            const updatedDoc = {
+                $set: {
+                    transationId: payment.transationId,
+                    paid: true
+                }
+            }
+            const bookingUpdateResult = await bookingsCollection.updateOne(filter, updatedDoc)
             res.send(result)
         })
     }
